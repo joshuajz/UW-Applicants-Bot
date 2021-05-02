@@ -111,7 +111,17 @@ async def _decision(
 
     average = average.replace("%", "")
 
-    embed = create_embed("Decision Verification Required", "", "magenta")
+    colour = "magenta"
+    if status == "Accepted":
+        colour = "light_green"
+    elif status == "Waitlisted":
+        colour = "orange"
+    elif status == "Deferred":
+        colour = "yellow"
+    elif status == "Rejected":
+        colour = "red"
+
+    embed = create_embed("Decision Verification Required", "", colour)
     add_field(embed, "User", ctx.author.mention, True)
     add_field(embed, "User ID", ctx.author.id, True)
     add_field(embed, "School", school, True)
@@ -202,7 +212,7 @@ async def on_raw_reaction_add(ctx):
         channel = client.get_channel(int(os.environ.get("WATERLOO_DECISIONS")))
         await channel.send(f"{user.mention}", embed=embed)
 
-        if status.lower() == "accepted":
+        if status == "Accepted":
             guild = client.get_guild(ctx.guild_id)
             accepted_role = guild.get_role(int(os.environ.get("ACCEPTED_ROLE")))
             member = guild.get_member(int(user_id))
