@@ -4,6 +4,8 @@ from dotenv import load_dotenv
 from spreadsheet import pull_channel
 import gspread
 from embed import create_embed, add_field
+from discord_slash import SlashCommand
+from discord_slash.utils.manage_commands import create_option
 
 load_dotenv()
 
@@ -15,6 +17,9 @@ intents.reactions = True
 # Bot Instance
 client = discord.Client(intents=intents)
 
+# Slash Command Instance
+slash = SlashCommand(client, sync_commands=True)
+
 # All of the "Extensions" or "Cogs" the bot starts with
 startup_extensions = []
 
@@ -24,87 +29,96 @@ sheet = gc.open_by_key("1aFqCSU4vQUHyJIl44-3beRNqIvo7kutQ86nu8SpVZkE")
 
 mod_queue_int = 806718856924102656
 
+guilds = [742522966998515732]
+
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}.")
-
+    await client.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.listening, name="/decision command."
+        )
+    )
     # await pull_channel(client, 798929515090804776)
 
 
-@client.event
-async def on_message(ctx):
-    if ctx.content.lower().startswith("!decision"):
-        content = ctx.content
-        content = content.split(",")
-        if len(content) != 4 and len(content) != 5:
-            embed = create_embed(
-                "!decision",
-                "!decision University - Program, Percentage, Date Applied, Date Accepted, Other Information",
-                "orange",
-            )
-            add_field(
-                embed,
-                "Example",
-                "!decision Waterloo - Computer Science, 95, December, March 29, 101 Applicant + 100 Voluenteer Hours",
-                True,
-            )
-            await ctx.channel.send(embed=embed)
-            return
-        content[0] = content[0][10::]
-        waterloo_list = ["waterloo", "uw", "university of waterloo", "uwaterloo"]
-        waterloo_admission = False
-        for word in waterloo_list:
-            if word in content[0].lower():
-                waterloo_admission = True
-                break
+@slash.slash(
+    name="decision",
+    description="Allows you to record a decision to the channel and spreadsheet.",
+    guild_ids=guilds,
+    options=[
+        create_option(
+            name="School",
+            description="The school you were accepted to.",
+            option_type=3,
+            required=True,
+        ),
+        create_option(
+            name="Program",
+            description="The program you applied to.",
+            option_type=3,
+            required=True,
+        ),
+        create_option(
+            name="Average",
+            description="Your top 6 average",
+            option_type=3,
+            required=True,
+        ),
+        create_option(
+            name="Accepted_Date",
+            description="The date you were accepted to the program.",
+            option_type=3,
+            required=True,
+        ),
+        create_option(
+            name="Type",
+            description="Applicant Type: 101/105",
+            option_type=3,
+            required=True,
+        ),
+        create_option(
+            name="Other",
+            description="Other information you want to provide",
+            option_type=3,
+            required=False,
+        ),
+    ],
+)
+async def _decision(
+    ctx, school: str, program: str, average: str, date: str, app_type: str, other=None
+):
+    waterloo_list = ["waterloo", "uw", "university of waterloo", "uwaterloo"]
+    waterloo_admission = False
+    for word in waterloo_list:
+        if word in school.lower():
+            waterloo_admission = True
 
-        if waterloo_admission:
-            school_program = "-".join(content[0].split("-")[1::]).strip()
-        else:
-            school_program = content[0]
+    average = average.replace("%", "")
 
-        other = None
-        if len(content) == 5:
-            other = content[-1]
-
-        average = content[1].strip().replace("%", "")
-        date_applied = content[2].strip()
-        date_accepted = content[3].strip()
-
-        user_embed = create_embed(
-            "Succesfully Sent to Moderators",
-            "Your Decision has been sent to the administrators of the server for review.  Please sit tight!",
-            "light_green",
-        )
-        add_field(user_embed, "User", ctx.author.mention, True)
-        add_field(user_embed, "School - Program", school_program, True)
-        add_field(user_embed, "Waterloo Acceptance?", waterloo_admission, True)
-        add_field(user_embed, "Average", average, True)
-        add_field(user_embed, "Date Applied", date_applied, True)
-        add_field(user_embed, "Date Accepted", date_accepted, True)
-        add_field(user_embed, "Other", other, True)
-        await ctx.channel.send(embed=user_embed)
-
-        embed = create_embed("Decision Verification Required", "", "magenta")
-
-        add_field(embed, "User", ctx.author.mention, True)
-        add_field(embed, "User ID", ctx.author.id, True)
-        add_field(embed, "School/Program", school_program, True)
-        add_field(embed, "Waterloo Acceptance", waterloo_admission, True)
-        add_field(embed, "Average", average, True)
-        add_field(embed, "Date Applied", date_applied, True)
-        add_field(embed, "Date Accepted", date_accepted, True)
+    embed = create_embed("Decision Verification Required", "", "magenta")
+    add_field(embed, "User", ctx.author.mention, True)
+    add_field(embed, "User ID", ctx.author.id, True)
+    add_field(embed, "School", school, True)
+    add_field(embed, "Program", program, True)
+    add_field(embed, "Waterloo Acceptance", waterloo_admission, True)
+    add_field(embed, "Average", average, True)
+    add_field(embed, "Date Accepted", date, True)
+    add_field(embed, "101/105", app_type, True)
+    if other:
         add_field(embed, "Other", other, True)
+    else:
+        add_field(embed, "Other", "None", True)
 
-        mod_queue = client.get_channel(mod_queue_int)
-        mod_queue_message = await mod_queue.send(embed=embed)
+    mod_queue = client.get_channel(mod_queue_int)
+    mod_queue_message = await mod_queue.send(embed=embed)
 
-        emojis = ["✅", "❌"]
-        for emoji in emojis:
-            await mod_queue_message.add_reaction(emoji)
+    emojis = ["✅", "❌"]
+    for emoji in emojis:
+        await mod_queue_message.add_reaction(emoji)
 
-        # print(school_program, waterloo_admission, average, date_applied, date_accepted)
+    await ctx.send("Information Successfully Sent to the Moderators.")
 
 
 @client.event
@@ -133,33 +147,32 @@ async def on_raw_reaction_add(ctx):
         await message.delete()
         return
     elif ctx.emoji.name == "✅":
-        for embed in message_embeds.fields:
-            if embed.name == "User ID":
-                user_id = embed.value
-            elif embed.name == "School/Program":
-                program_school = embed.value
-            elif embed.name == "Waterloo Acceptance":
-                waterloo_acceptance = embed.value
-            elif embed.name == "Average":
-                average = embed.value
-            elif embed.name == "Date Applied":
-                date_applied = embed.value
-            elif embed.name == "Date Accepted":
-                date_accepted = embed.value
-            elif embed.name == "Other":
-                other = embed.value
+        embeds = message_embeds.fields
+        user_id = embeds[1].value
+        school = embeds[2].value
+        program = embeds[3].value
+        waterloo_acceptance = embeds[4].value
+        average = embeds[5].value
+        date_accepted = embeds[6].value
+        app_type = embeds[7].value
+        other = embeds[8].value
 
     if other == "None":
         other = None
 
     user = client.get_user(int(user_id))
 
+    if eval(waterloo_acceptance):
+        program_school = program
+    else:
+        program_school = f"{school} - {program}"
+    print(program_school)
     embed = create_embed(
         f"{program_school}", f"{user.name}#{user.discriminator}", "orange"
     )
     add_field(embed, "Average", average, True)
-    add_field(embed, "Date Applied", date_applied, True)
     add_field(embed, "Date Accepted", date_accepted, True)
+    add_field(embed, "Applicant Type", app_type, True)
     if other is not None:
         add_field(embed, "Other", other, True)
     embed.set_thumbnail(url=user.avatar_url)
@@ -180,7 +193,7 @@ async def on_raw_reaction_add(ctx):
     user_str = f"{user.name}#{user.discriminator}"
 
     # Adding to worksheet
-    wsheet_list = [program_school, average, date_applied, date_accepted, user_str]
+    wsheet_list = [program_school, average, date_accepted, user_str, app_type]
     if other is not None:
         wsheet_list.append(other)
 
@@ -195,9 +208,8 @@ async def on_raw_reaction_add(ctx):
         "Decision Added Successfully", f"{program_school}", "light_green"
     )
     add_field(embed, "Average", average, True)
-    add_field(embed, "Date Applied", date_applied, True)
     add_field(embed, "Date Accepted", date_accepted, True)
-    add_field(embed, "Waterloo?", waterloo_acceptance, True)
+    add_field(embed, "Applicant Type", app_type, True)
     if other is not None:
         add_field(embed, "Other", other, True)
 
