@@ -7,6 +7,7 @@ class embedColours(enum.Enum):
     red = 0xB30012
     orange = 0xFF7B00
     light_green = 0x1DBF38
+    yellow = 0xEBEB07
     dark_blue = 0x1D58BF
     magenta = 0xA832A4
 

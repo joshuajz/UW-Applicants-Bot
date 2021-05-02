@@ -177,8 +177,18 @@ async def on_raw_reaction_add(ctx):
     else:
         program_school = f"{school} - {program}"
 
+    colour = "orange"
+    if status == "Accepted":
+        colour = "light_green"
+    elif status == "Waitlisted":
+        colour = "orange"
+    elif status == "Deferred":
+        colour = "yellow"
+    elif status == "Rejected":
+        colour = "red"
+
     embed = create_embed(
-        f"{program_school}", f"{user.name}#{user.discriminator}", "orange"
+        f"{program_school}", f"{user.name}#{user.discriminator}", colour
     )
     add_field(embed, "Status", status, True)
     add_field(embed, "Average", average, True)
@@ -189,17 +199,17 @@ async def on_raw_reaction_add(ctx):
     embed.set_thumbnail(url=user.avatar_url)
     if eval(waterloo_decision):
         worksheet = sheet.worksheet("Waterloo")
-        channel = client.get_channel(os.environ.get("WATERLOO_DECISIONS"))
+        channel = client.get_channel(int(os.environ.get("WATERLOO_DECISIONS")))
         await channel.send(f"{user.mention}", embed=embed)
 
         if status.lower() == "accepted":
             guild = client.get_guild(ctx.guild_id)
-            accepted_role = guild.get_role(os.environ.get("ACCEPTED_ROLE"))
+            accepted_role = guild.get_role(int(os.environ.get("ACCEPTED_ROLE")))
             member = guild.get_member(int(user_id))
             await member.add_roles(accepted_role)
     else:
         worksheet = sheet.worksheet("Other")
-        channel = client.get_channel(os.environ.get("DECISIONS"))
+        channel = client.get_channel(int(os.environ.get("DECISIONS")))
         await channel.send(f"{user.mention}", embed=embed)
 
     user_str = f"{user.name}#{user.discriminator}"
@@ -209,7 +219,7 @@ async def on_raw_reaction_add(ctx):
         status,
         program_school,
         average,
-        decision_made_on,
+        date_of_decision,
         user_str,
         app_type,
     ]
