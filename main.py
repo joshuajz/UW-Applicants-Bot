@@ -5,7 +5,7 @@ from spreadsheet import pull_channel
 import gspread
 from embed import create_embed, add_field
 from discord_slash import SlashCommand
-from discord_slash.utils.manage_commands import create_option
+from discord_slash.utils.manage_commands import create_option, create_choice
 
 load_dotenv()
 
@@ -19,17 +19,10 @@ client = discord.Client(intents=intents)
 
 # Slash Command Instance
 slash = SlashCommand(client, sync_commands=True)
-
-# All of the "Extensions" or "Cogs" the bot starts with
-startup_extensions = []
-
-gc = gspread.service_account(f"{os.getcwd()}/service_account.json")
-
-sheet = gc.open_by_key("1aFqCSU4vQUHyJIl44-3beRNqIvo7kutQ86nu8SpVZkE")
-
-mod_queue_int = 806718856924102656
-
-guilds = [742522966998515732]
+# Load Service Account and Open Spreadsheet
+sheet = gspread.service_account(f"{os.getcwd()}/service_account.json").open_by_key(
+    os.environ.get("GOOGLE_SHEET_KEY")
+)
 
 
 @client.event
@@ -46,11 +39,11 @@ async def on_ready():
 @slash.slash(
     name="decision",
     description="Allows you to record a decision to the channel and spreadsheet.",
-    guild_ids=guilds,
+    guild_ids=[int(os.environ.get("GUILD"))],
     options=[
         create_option(
             name="School",
-            description="The school you were accepted to.",
+            description="The school that a decision was made for.",
             option_type=3,
             required=True,
         ),
@@ -61,22 +54,39 @@ async def on_ready():
             required=True,
         ),
         create_option(
+            name="Status",
+            description="Decision Type",
+            option_type=3,
+            required=True,
+            choices=[
+                create_choice(name="Accepted", value="Accepted"),
+                create_choice(name="Rejected", value="Rejected"),
+                create_choice(name="Waitlisted", value="Waitlisted"),
+                create_choice(name="Deferred", value="Deferred"),
+            ],
+        ),
+        create_option(
             name="Average",
             description="Your top 6 average",
             option_type=3,
             required=True,
         ),
         create_option(
-            name="Accepted_Date",
-            description="The date you were accepted to the program.",
+            name="Date",
+            description="The date you were given a decision.",
             option_type=3,
             required=True,
         ),
         create_option(
             name="Type",
-            description="Applicant Type: 101/105",
+            description="Applicant Type",
             option_type=3,
             required=True,
+            choices=[
+                create_choice(name="101 (Ontario)", value="101"),
+                create_choice(name="105 (International)", value="105F"),
+                create_choice(name="105 (Domestic -> Not Ontario)", value="105D"),
+            ],
         ),
         create_option(
             name="Other",
@@ -87,13 +97,17 @@ async def on_ready():
     ],
 )
 async def _decision(
-    ctx, school: str, program: str, average: str, date: str, app_type: str, other=None
+    ctx,
+    school: str,
+    program: str,
+    status: str,
+    average: str,
+    date: str,
+    app_type: str,
+    other=None,
 ):
-    waterloo_list = ["waterloo", "uw", "university of waterloo", "uwaterloo"]
-    waterloo_admission = False
-    for word in waterloo_list:
-        if word in school.lower():
-            waterloo_admission = True
+    aliases = ["waterloo", "uw", "university of waterloo", "uwaterloo"]
+    waterloo_decision = True if school.lower() in aliases else False
 
     average = average.replace("%", "")
 
@@ -102,23 +116,23 @@ async def _decision(
     add_field(embed, "User ID", ctx.author.id, True)
     add_field(embed, "School", school, True)
     add_field(embed, "Program", program, True)
-    add_field(embed, "Waterloo Acceptance", waterloo_admission, True)
+    add_field(embed, "Status", status, True)
+    add_field(embed, "Waterloo Decision", waterloo_decision, True)
     add_field(embed, "Average", average, True)
-    add_field(embed, "Date Accepted", date, True)
+    add_field(embed, "Decision Made On", date, True)
     add_field(embed, "101/105", app_type, True)
     if other:
         add_field(embed, "Other", other, True)
     else:
         add_field(embed, "Other", "None", True)
 
-    mod_queue = client.get_channel(mod_queue_int)
+    mod_queue = client.get_channel(int(os.environ.get("MOD_QUEUE")))
     mod_queue_message = await mod_queue.send(embed=embed)
 
-    emojis = ["✅", "❌"]
-    for emoji in emojis:
+    for emoji in ["✅", "❌"]:
         await mod_queue_message.add_reaction(emoji)
 
-    await ctx.send("Information Successfully Sent to the Moderators.")
+    await ctx.send("Information Successfully Sent To The Moderators For Review.")
 
 
 @client.event
@@ -128,15 +142,10 @@ async def on_raw_reaction_add(ctx):
 
     message = await client.get_channel(ctx.channel_id).fetch_message(ctx.message_id)
 
-    if mod_queue_int != int(ctx.channel_id):
+    if int(os.environ.get("MOD_QUEUE")) != int(ctx.channel_id):
         return
 
     message_embeds = message.embeds[0]
-
-    decisions = 776621660341665802
-    uw_decisions = 798929515090804776
-
-    accepted_role = 789245639011729438
 
     if message_embeds.title != "Decision Verification Required":
         return
@@ -151,49 +160,59 @@ async def on_raw_reaction_add(ctx):
         user_id = embeds[1].value
         school = embeds[2].value
         program = embeds[3].value
-        waterloo_acceptance = embeds[4].value
-        average = embeds[5].value
-        date_accepted = embeds[6].value
-        app_type = embeds[7].value
-        other = embeds[8].value
+        status = embeds[4].value
+        waterloo_decision = embeds[5].value
+        average = embeds[6].value
+        date_of_decision = embeds[7].value
+        app_type = embeds[8].value
+        other = embeds[9].value
 
     if other == "None":
         other = None
 
     user = client.get_user(int(user_id))
 
-    if eval(waterloo_acceptance):
+    if eval(waterloo_decision):
         program_school = program
     else:
         program_school = f"{school} - {program}"
-    print(program_school)
+
     embed = create_embed(
         f"{program_school}", f"{user.name}#{user.discriminator}", "orange"
     )
+    add_field(embed, "Status", status, True)
     add_field(embed, "Average", average, True)
-    add_field(embed, "Date Accepted", date_accepted, True)
+    add_field(embed, "Decision Made On", date_of_decision, True)
     add_field(embed, "Applicant Type", app_type, True)
     if other is not None:
         add_field(embed, "Other", other, True)
     embed.set_thumbnail(url=user.avatar_url)
-    if eval(waterloo_acceptance):
+    if eval(waterloo_decision):
         worksheet = sheet.worksheet("Waterloo")
-        channel = client.get_channel(uw_decisions)
+        channel = client.get_channel(os.environ.get("WATERLOO_DECISIONS"))
         await channel.send(f"{user.mention}", embed=embed)
 
-        guild = client.get_guild(ctx.guild_id)
-        accepted_role = guild.get_role(accepted_role)
-        member = guild.get_member(int(user_id))
-        await member.add_roles(accepted_role)
+        if status.lower() == "accepted":
+            guild = client.get_guild(ctx.guild_id)
+            accepted_role = guild.get_role(os.environ.get("ACCEPTED_ROLE"))
+            member = guild.get_member(int(user_id))
+            await member.add_roles(accepted_role)
     else:
         worksheet = sheet.worksheet("Other")
-        channel = client.get_channel(decisions)
+        channel = client.get_channel(os.environ.get("DECISIONS"))
         await channel.send(f"{user.mention}", embed=embed)
 
     user_str = f"{user.name}#{user.discriminator}"
 
     # Adding to worksheet
-    wsheet_list = [program_school, average, date_accepted, user_str, app_type]
+    wsheet_list = [
+        status,
+        program_school,
+        average,
+        decision_made_on,
+        user_str,
+        app_type,
+    ]
     if other is not None:
         wsheet_list.append(other)
 
@@ -207,8 +226,9 @@ async def on_raw_reaction_add(ctx):
     embed = create_embed(
         "Decision Added Successfully", f"{program_school}", "light_green"
     )
+    add_field(embed, "Status", status, True)
     add_field(embed, "Average", average, True)
-    add_field(embed, "Date Accepted", date_accepted, True)
+    add_field(embed, "Decision Made On", date_of_decision, True)
     add_field(embed, "Applicant Type", app_type, True)
     if other is not None:
         add_field(embed, "Other", other, True)
@@ -219,4 +239,4 @@ async def on_raw_reaction_add(ctx):
 
 
 # Runs the bot with the token in .env
-client.run(os.environ.get("bot_token"))
+client.run(os.environ.get("BOT_TOKEN"))
